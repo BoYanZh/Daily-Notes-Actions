@@ -1,0 +1,86 @@
+# Name of the GitHub Actions workflow.
+name: Weekly Summary Generator
+
+# --- TRIGGERS ---
+on:
+  schedule:
+    # Runs at 5 PM UTC on Saturday, which is 10 AM PDT on Saturday.
+    # This ensures it captures the entire work week.
+    - cron: '0 17 * * 6'
+
+  # Allows you to run this workflow manually from the Actions tab.
+  workflow_dispatch:
+
+# --- PERMISSIONS ---
+permissions:
+  contents: read
+  packages: write
+  issues: write
+
+# --- JOBS ---
+jobs:
+  generate_weekly_summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Generate Weekly Summary Issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TZ: America/Los_Angeles # Set timezone to PDT
+        run: |
+          # --- Part 1: Define Date Range for the Past Week ---
+          # Note: 'date' command on Linux might behave differently than on macOS.
+          # These commands are for the GNU 'date' used in GitHub Actions.
+          START_OF_WEEK=$(date -d "last monday" +'%Y-%m-%d')
+          END_OF_WEEK=$(date -d "$START_OF_WEEK + 5 days" +'%Y-%m-%d')
+          SUMMARY_TITLE="Weekly Summary: ${START_OF_WEEK} to ${END_OF_WEEK}"
+
+          echo "Generating summary for ${START_OF_WEEK} to ${END_OF_WEEK}"
+
+          # --- Part 2: Find All Daily Logs from This Week ---
+          # We search for issues with the 'Daily Log' label created since the start of the week.
+          # The 'jq' query formats the output nicely into a list and reverses the order (oldest first).
+          ISSUE_NUMBERS=$(gh issue list --state all --label "Daily Log" --search "created:>=${START_OF_WEEK}" --json number --jq 'reverse | .[] | .number')
+
+          # --- Part 3: Fetch and Combine All Comments ---
+          echo "Fetching comments from daily logs..."
+
+          COMBINED_CONTENT=""
+
+          for issue_number in $ISSUE_NUMBERS; do
+            DAILY_ISSUE_INFO=$(gh issue view $issue_number --json title,url)
+            DAILY_TITLE=$(echo $DAILY_ISSUE_INFO | jq -r '.title')
+            DAILY_URL=$(echo $DAILY_ISSUE_INFO | jq -r '.url')
+            COMMENTS=$(gh issue view $issue_number --json comments --jq '.comments[].body')
+            echo "Found comments for $DAILY_TITLE: $COMMENTS"
+
+            if [[ -n "$COMMENTS" ]]; then
+              COMBINED_CONTENT+=$'\n\n### Comments from ['"$DAILY_TITLE"']('"$DAILY_URL"$')\n\n'"$COMMENTS"
+            fi
+          done
+
+          # --- Part 4: Ensure 'Weekly Summary' Label Exists ---
+          LABEL_NAME="Weekly Summary"
+          echo "Checking for label: '${LABEL_NAME}'"
+
+          # The 'if ! ...' structure checks if the grep command fails (i.e., label not found).
+          # 'grep -q -x' quietly checks for an exact, full-line match.
+          if ! gh label list --json name -q '.[] | .name' | grep -q -x "$LABEL_NAME"; then
+            echo "Label not found. Creating it now."
+            # Creates the label with a green color and a description.
+            gh label create "$LABEL_NAME" --color "0052CC" --description "Issues for weekly work logs"
+          else
+            echo "Label already exists."
+          fi
+
+          # --- Part 5: Create the Weekly Summary Issue with All Content ---
+          echo "Creating weekly summary issue with all comments..."
+          WEEKLY_ISSUE_URL=$(gh issue create --title "$SUMMARY_TITLE" \
+                          --body "$COMBINED_CONTENT" \
+                          --label "$LABEL_NAME")
+          if [[ -z "$WEEKLY_ISSUE_URL" ]]; then
+            echo "Failed to create weekly summary issue. Exiting."
+            exit 1
+          fi
+          echo "Successfully created weekly summary issue: $WEEKLY_ISSUE_URL"

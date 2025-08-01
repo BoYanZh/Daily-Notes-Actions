@@ -1,0 +1,71 @@
+# Name of the GitHub Actions workflow.
+name: Weekday Work Log Manager
+# --- TRIGGERS ---
+# This workflow runs on a schedule and can also be triggered manually.
+on:
+  schedule:
+    # Runs at 15:00 UTC (e.g., 8:00 AM PDT) from Monday to Friday.
+    - cron: '0 15 * * 1-5'
+  # Allows you to run this workflow manually from the Actions tab.
+  workflow_dispatch:
+# --- PERMISSIONS ---
+permissions:
+  contents: read
+  packages: write
+  issues: write
+# --- JOBS ---
+jobs:
+  manage_daily_issue:
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Check out the repository's code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      # Step 2: Manage the daily issues using a script
+      - name: Manage Daily Issues
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TZ: America/Los_Angeles
+        run: |
+          # --- Part 1: Find and Close Yesterday's Issue ---
+          YESTERDAY=$(date -u -d "yesterday" +'%Y-%m-%d')
+          YESTERDAY_TITLE="${YESTERDAY} Daily Log"
+
+          echo "Searching for yesterday's issue: ${YESTERDAY_TITLE}"
+          ISSUE_TO_CLOSE=$(gh issue list --search "in:title \"${YESTERDAY_TITLE}\"" --state open --json number -q '.[0].number')
+
+          if [[ -n "$ISSUE_TO_CLOSE" ]]; then
+            echo "Found issue #${ISSUE_TO_CLOSE}. Closing it."
+            gh issue close $ISSUE_TO_CLOSE
+          else
+            echo "No open issue found for yesterday. Skipping closure."
+          fi
+
+          echo "---------------------------------"
+
+          # --- Part 2: Ensure 'Daily Log' Label Exists ---
+          LABEL_NAME="Daily Log"
+          echo "Checking for label: '${LABEL_NAME}'"
+
+          # The 'if ! ...' structure checks if the grep command fails (i.e., label not found).
+          # 'grep -q -x' quietly checks for an exact, full-line match.
+          if ! gh label list --json name -q '.[] | .name' | grep -q -x "$LABEL_NAME"; then
+            echo "Label not found. Creating it now."
+            # Creates the label with a green color and a description.
+            gh label create "$LABEL_NAME" --color "0E8A16" --description "Issues for daily work logs"
+          else
+            echo "Label already exists."
+          fi
+
+          echo "---------------------------------"
+
+          # --- Part 3: Create Today's Issue ---
+          TODAY=$(date -u +'%Y-%m-%d')
+          TODAY_TITLE="${TODAY} Daily Log"
+
+          echo "Creating today's issue: ${TODAY_TITLE}"
+          gh issue create --title "$TODAY_TITLE" \
+                          --body "" \
+                          --label "$LABEL_NAME"
+
+          echo "Successfully created today's issue."
