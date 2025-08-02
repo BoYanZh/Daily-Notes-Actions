@@ -32,8 +32,8 @@ jobs:
           # --- Part 1: Define Date Range for the Past Week ---
           # Note: 'date' command on Linux might behave differently than on macOS.
           # These commands are for the GNU 'date' used in GitHub Actions.
-          START_OF_WEEK=$(date -d "last monday" +'%Y-%m-%d')
-          END_OF_WEEK=$(date -d "$START_OF_WEEK + 5 days" +'%Y-%m-%d')
+          START_OF_WEEK=$(date -d "last sunday" +'%Y-%m-%d')
+          END_OF_WEEK=$(date -d "$START_OF_WEEK + 6 days" +'%Y-%m-%d')
           SUMMARY_TITLE="Weekly Summary: ${START_OF_WEEK} to ${END_OF_WEEK}"
 
           echo "Generating summary for ${START_OF_WEEK} to ${END_OF_WEEK}"
